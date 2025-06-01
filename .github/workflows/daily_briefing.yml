@@ -1,0 +1,25 @@
+name: Daily AI Business Briefing
+on:
+  schedule:          # 05:30 CEST = 03:30 UTC
+    - cron: '30 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+
+      - run: pip install -r requirements.txt
+      - run: python crawl.py
+      - run: python summarize.py
+      - run: python tts.py             # erzeugt output/briefing.mp3
+
+      - name: Upload to Google Drive
+        uses: willo32/google-drive-upload-action@v1
+        with:
+          target: output/briefing.mp3
+          parent_folder_id: ${{ secrets.GOOGLE_DRIVE_FOLDER }}
+          credentials:     ${{ secrets.GDRIVE_CREDENTIALS }}
