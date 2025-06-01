@@ -1,0 +1,1 @@
+text\nfeedparser\nrequests\nopenai>=1.14\ngoogle-generativeai>=0.4.0\n
