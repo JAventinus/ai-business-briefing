@@ -1,65 +1,55 @@
 """
-tts.py – erzeugt AI-Business-Briefing als MP3 mit Datum im Dateinamen
---------------------------------------------------------------------
-• liest script.txt
-• ruft Gemini 2.5 Flash-TTS auf
-• legt YYYY-MM-DD_briefing.mp3 in output/ ab
+tts.py  –  erzeugt YYYY-MM-DD_briefing.mp3 via Gemini 2.5 Flash TTS
 """
 
 import os, base64, pathlib, sys
 from datetime import date
 import google.generativeai as genai
 
-# ---------- Konfiguration ---------------------------------------------------
-MODEL_NAME    = "gemini-2.5-flash-preview-tts"   # alternativ: gemini-2.5-pro-preview-tts
-VOICE_NAME    = "puck"                           # dt. Stimme (z. B. kore, fenrir, …)
-SPEAKING_RATE = 0.95
+# ---------------- Konfiguration -----------------------------------
+MODEL_NAME    = "gemini-2.5-flash-preview-tts"
+VOICE_NAME    = "puck"         # dt. Stimme
+SPEAK_RATE    = 0.95
 PITCH         = "+2st"
 SCRIPT_FILE   = "script.txt"
-OUTPUT_DIR    = pathlib.Path("output")
-FILENAME      = f"{date.today():%Y-%m-%d}_briefing.mp3"
-OUTPUT_FILE   = OUTPUT_DIR / FILENAME
-# ---------------------------------------------------------------------------
+OUT_DIR       = pathlib.Path("output")
+OUT_FILE      = OUT_DIR / f"{date.today():%Y-%m-%d}_briefing.mp3"
+# -------------------------------------------------------------------
 
 def main() -> None:
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        sys.exit("❌  GEMINI_API_KEY fehlt (GitHub-Secret oder ENV-Var setzen).")
+    key = os.getenv("GEMINI_API_KEY")
+    if not key:
+        sys.exit("❌ GEMINI_API_KEY fehlt")
 
     if not pathlib.Path(SCRIPT_FILE).is_file():
-        sys.exit("❌  script.txt nicht gefunden – erst summarize.py ausführen.")
+        sys.exit("❌ script.txt nicht gefunden – summarize.py ausführen")
 
-    genai.configure(api_key=api_key)
+    genai.configure(api_key=key)
 
     with open(SCRIPT_FILE, "r", encoding="utf-8") as f:
         text = f.read()
 
-    print("⏳  Konvertiere Text → MP3 …")
+    model = genai.GenerativeModel(MODEL_NAME)
     try:
-        resp = genai.generate_content(
-            model            = MODEL_NAME,
-            contents         = [text],
-            response_mime_type = "audio/mp3",
-            audio_config     = {
-                "voice_name":    VOICE_NAME,
-                "speaking_rate": SPEAKING_RATE,
-                "pitch":         PITCH,
+        resp = model.generate_content(
+            text,
+            response_mime_type="audio/mp3",
+            audio_config={
+                "voice_name": VOICE_NAME,
+                "speaking_rate": SPEAK_RATE,
+                "pitch": PITCH,
             },
         )
-        audio_b64 = (
-            resp.candidates[0]
-                .content.parts[0]
-                .inline_data.data        # type: ignore[attr-defined]
-        )
-    except Exception as e:
-        sys.exit(f"❌  Gemini-API-Fehler: {e}")
+    except Exception as err:
+        sys.exit(f"❌ Gemini-API-Fehler: {err}")
 
-    OUTPUT_DIR.mkdir(exist_ok=True)
-    with open(OUTPUT_FILE, "wb") as f:
-        f.write(base64.b64decode(audio_b64))
+    # Audio liegt in Base64 …
+    data_b64 = resp.candidates[0].content.parts[0].inline_data.data  # type: ignore[attr-defined]
+    OUT_DIR.mkdir(exist_ok=True)
+    with open(OUT_FILE, "wb") as f:
+        f.write(base64.b64decode(data_b64))
 
-    size_kb = OUTPUT_FILE.stat().st_size // 1024
-    print(f"✅  {OUTPUT_FILE.name} gespeichert ({size_kb} KB)")
+    print(f"✅ {OUT_FILE.name} erzeugt")
 
 if __name__ == "__main__":
     main()
