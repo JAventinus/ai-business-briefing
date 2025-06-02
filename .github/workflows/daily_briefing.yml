@@ -1,64 +1,53 @@
 name: Daily AI Business Briefing
-
 on:
   schedule:
-    - cron: '30 3 * * *'          # 05:30 CEST  (UTC +2)
+    - cron: '30 3 * * *'
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     env:
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      GOOGLE_DRIVE_FOLDER: ${{ secrets.GOOGLE_DRIVE_FOLDER }}
+      OPENAI_API_KEY:        ${{ secrets.OPENAI_API_KEY }}
+      GOOGLE_DRIVE_FOLDER:   ${{ secrets.GOOGLE_DRIVE_FOLDER }}
 
     steps:
-    # ───────────────────────── Code
-    - name: Checkout repository
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-    # ───────────────────────── Python
-    - name: Set up Python 3.11
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
+    - uses: actions/setup-python@v5
+      with: { python-version: '3.11' }
 
-    # ───────────────────────── Pakete
-    - name: Install dependencies
+    - name: Install deps
       run: |
         pip install --upgrade pip
         pip install google-cloud-texttospeech>=2.16.1
-        pip install -r requirements.txt        # feedparser, requests, openai …
+        pip install -r requirements.txt
 
-    # ───────────────────────── ADC-Credentials
-    - name: Write SA key & set ADC
+    - name: ADC write
       run: |
         echo '${{ secrets.GDRIVE_CREDENTIALS_B64 }}' | base64 -d > /tmp/sa.json
         echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa.json" >> $GITHUB_ENV
 
-    # ───────────────────────── Workflow-Logik
-    - name: Crawl & score news
-      run: python crawl.py
+    # ------------------- dein Workflow -------------------
+    - run: python crawl.py
+      name: Crawl & score news
 
-    - name: Build podcast script
-      run: python summarize.py
+    - run: python summarize.py
+      name: Build podcast script
 
-    - name: Generate MP3 with Google Cloud TTS
-      run: python tts.py                      # schreibt output/YYYY-MM-DD_briefing.mp3
+    - run: python tts.py
+      name: Generate MP3 with Google Cloud TTS            # erzeugt output/YYYY-MM-DD_briefing.mp3
 
-    # ───────────────────────── Pfad der MP3 erfassen
-    - name: Capture MP3 path
-      id: findmp3
+    # ---------- Datei in einen festen Namen kopieren -----
+    - name: Statically name MP3
       run: |
-        FILE=$(ls output/*.mp3)
-        echo "MP3=$FILE" >> "$GITHUB_OUTPUT"
-        echo "Gefunden: $FILE"
+        cp output/*.mp3 briefing.mp3
+        echo "Briefing file: $(ls -l briefing.mp3)"
 
-    # ───────────────────────── Datei hochladen
+    # ------------------ Upload nach Drive ----------------
     - name: Upload MP3 to Google Drive
       uses: willo32/google-drive-upload-action@v1
       with:
-        target:           ${{ steps.findmp3.outputs.MP3 }}
-        credentials:      ${{ secrets.GDRIVE_CREDENTIALS_B64 }}
+        target: briefing.mp3                              # ← fester Dateiname
+        credentials: ${{ secrets.GDRIVE_CREDENTIALS_B64 }}
         parent_folder_id: ${{ env.GOOGLE_DRIVE_FOLDER }}
