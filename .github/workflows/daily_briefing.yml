@@ -2,8 +2,8 @@ name: Daily AI Business Briefing
 
 on:
   schedule:
-    - cron: '30 3 * * *'               # 05 : 30 CEST – Zeit nach Bedarf anpassen
-  workflow_dispatch:                   # manueller Start möglich
+    - cron: '30 3 * * *'          # 05:30 CEST
+  workflow_dispatch:
 
 jobs:
   build:
@@ -13,26 +13,38 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
     steps:
-    # ─────────────────────────────────────────────────────────────
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    # ─────────────────────────────────────────────────────────────
-    - name: Set up Python 3.11
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-    # ─────────────────────────────────────────────────────────────
-    - name: Install dependencies
-      run: |
-        pip install --upgrade pip
-        pip install google-cloud-texttospeech>=2.16.1
-        pip install -r requirements.txt        # feedparser, requests, openai …
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install google-cloud-texttospeech>=2.16.1
+          pip install -r requirements.txt
 
-    # ─────────────────────────────────────────────────────────────
-    #  Service-Account-Key als Datei ablegen und ADC setzen
-    - name: Write SA key & set ADC
-      run: |
-        echo '${{ secrets.GDRIVE_CREDENTIALS }}' > /tmp/sa.json
-        echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa.json" >> $GITHUB_ENV
+      - name: Write SA key & set ADC
+        run: |
+          echo '${{ secrets.GDRIVE_CREDENTIALS }}' > /tmp/sa.json
+          echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa.json" >> $GITHUB_ENV
+
+      # ---------- eigentliche Verarbeitung -------------------------
+      - name: Crawl & score news
+        run: python crawl.py
+
+      - name: Build podcast script
+        run: python summarize.py
+
+      - name: Generate MP3 with Google Cloud TTS
+        run: python tts.py
+
+      - name: Upload MP3 to Google Drive
+        uses: willo32/google-drive-upload-action@v1
+        with:
+          target:           output/*.mp3
+          credentials:      ${{ secrets.GDRIVE_CREDENTIALS }}
+          parent_folder_id: ${{ secrets.GOOGLE_DRIVE_FOLDER }}
