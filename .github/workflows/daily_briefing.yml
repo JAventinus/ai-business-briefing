@@ -2,24 +2,24 @@ name: Daily AI Business Briefing
 
 on:
   schedule:
-    - cron: '30 3 * * *'          # 05:30 CEST
+    - cron: '30 3 * * *'          # 05:30 CEST  (UTC +2)
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
-    env:                          # nur noch benötigte Secrets
-      OPENAI_API_KEY:           ${{ secrets.OPENAI_API_KEY }}
-      GOOGLE_DRIVE_FOLDER:      ${{ secrets.GOOGLE_DRIVE_FOLDER }}
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GOOGLE_DRIVE_FOLDER: ${{ secrets.GOOGLE_DRIVE_FOLDER }}
 
     steps:
-    # ───────────────────────── Code holen
+    # ───────────────────────── Code
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # ───────────────────────── Python 3.11
-    - name: Set up Python
+    # ───────────────────────── Python
+    - name: Set up Python 3.11
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
@@ -29,9 +29,9 @@ jobs:
       run: |
         pip install --upgrade pip
         pip install google-cloud-texttospeech>=2.16.1
-        pip install -r requirements.txt      # feedparser, requests, openai …
+        pip install -r requirements.txt        # feedparser, requests, openai …
 
-    # ───────────────────────── SA-Key anlegen & ADC setzen
+    # ───────────────────────── ADC-Credentials
     - name: Write SA key & set ADC
       run: |
         echo '${{ secrets.GDRIVE_CREDENTIALS_B64 }}' | base64 -d > /tmp/sa.json
@@ -45,12 +45,20 @@ jobs:
       run: python summarize.py
 
     - name: Generate MP3 with Google Cloud TTS
-      run: python tts.py                     # erzeugt output/YYYY-MM-DD_briefing.mp3
+      run: python tts.py                      # schreibt output/YYYY-MM-DD_briefing.mp3
+
+    # ───────────────────────── Pfad der MP3 erfassen
+    - name: Capture MP3 path
+      id: findmp3
+      run: |
+        FILE=$(ls output/*.mp3)
+        echo "MP3=$FILE" >> "$GITHUB_OUTPUT"
+        echo "Gefunden: $FILE"
 
     # ───────────────────────── Datei hochladen
     - name: Upload MP3 to Google Drive
       uses: willo32/google-drive-upload-action@v1
       with:
-        target:           output/*.mp3
+        target:           ${{ steps.findmp3.outputs.MP3 }}
         credentials:      ${{ secrets.GDRIVE_CREDENTIALS_B64 }}
         parent_folder_id: ${{ env.GOOGLE_DRIVE_FOLDER }}
