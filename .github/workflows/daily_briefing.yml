@@ -2,15 +2,14 @@ name: Daily AI Business Briefing
 
 on:
   schedule:
-    - cron: '30 3 * * *'      # 05:30 CEST
+    - cron: '30 3 * * *'          # 05:30 CEST
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
-    env:
-      GEMINI_API_KEY:  ${{ secrets.GEMINI_API_KEY }}
+    env:                          # GEMINI_API_KEY fällt weg
       OPENAI_API_KEY:  ${{ secrets.OPENAI_API_KEY }}
 
     steps:
@@ -22,21 +21,11 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install & pin dependencies
+      - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
-
-      # ↓↓↓  HIER war der Fehler: Block mit | einleiten  ↓↓↓
-      - name: Show google-generativeai version
-        run: |
-          python - <<'PY'
-          import importlib.metadata, sys
-          print(
-              "google-generativeai version:",
-              importlib.metadata.version("google-generativeai")
-          )
-          PY
+          pip install google-cloud-texttospeech>=2.16.1
+          pip install -r requirements.txt      # enthält feedparser, requests, openai …
 
       - name: Crawl & score news
         run: python crawl.py
@@ -44,8 +33,8 @@ jobs:
       - name: Build podcast script
         run: python summarize.py
 
-      - name: Generate MP3 with Gemini TTS
-        run: python tts.py
+      - name: Generate MP3 with Google Cloud TTS
+        run: python tts.py                     # nutzt jetzt google-cloud-texttospeech
 
       - name: Upload MP3 to Google Drive
         uses: willo32/google-drive-upload-action@v1
