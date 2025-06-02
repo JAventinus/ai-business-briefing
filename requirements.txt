@@ -1,4 +1,4 @@
 feedparser
 requests
 openai>=1.14
-google-generativeai==0.5.0    # exakt diese Version
+google-generativeai>=0.6.1       # 0.6.1 oder höher ist zwingend
