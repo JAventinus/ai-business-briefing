@@ -1,73 +1,59 @@
 """
-summarize.py – fasst articles.json in ein Podcast-Skript
-• nutzt OpenAI GPT-4o 32k
-• erzeugt script.txt  (≈ 2 000 Wörter, 15-20 min Audio)
+summarize.py – erstellt Podcast-Skript aus articles.json
+• Wenn keine Artikel: kurzer Hinweis-Text statt Fehler
 """
 
-import json, os, textwrap, openai, sys, datetime
+import json, os, sys, openai, datetime
 from pathlib import Path
 
-MODEL = "gpt-4o-mini"        # günstig + lang
-TOKENS = 3_000               # max. Output
-TEMPERATURE = 0.4
+MODEL = "gpt-4o-mini"
+TOKENS = 2_800
+TEMP = 0.4
 
-SYSTEM_PROMPT = """\
-Du bist Redakteur eines täglichen deutschsprachigen Podcasts für KI-Geschäftsmodelle.
-Deine Hörer sind Manager und Gründer, die mit KI Geld verdienen wollen.
-Erstelle eine 15-20-minütige Episode (~2 000 Wörter).
+TEMPLATE = """\
+Du bist Redakteur eines deutschsprachigen Podcasts über KI-Geschäftsmodelle.
+Nutze die Quellen, um eine 15–20-min Episode (~2 000 Wörter) zu schreiben:
 
-Format:
-# Headline (max 12 Wörter)
-## Intro – 4-5 Sätze, warum diese Episode wichtig ist
+# Headline
+## Intro
 ### Top-Stories
-* Story 1: knackige Zusammenfassung (max 120 Wörter) → „Warum ist das relevant?“
-* Story 2: …
 ### Deep-Dive
-Abschnitt      | Inhalt (5-6 Sätze)
----------------|--------------------------------------------------------------
-Markttrends    | ...
-Neue Player    | ...
-Funding/M&A    | ...
-Risiken&Reg    | ...
 ### Take-aways
-1. wichtigste Lehre
-2. …
 ### Call-to-Action
 """
 
-def load_articles() -> list[dict]:
+FALLBACK_TEXT = """\
+# AI Business Briefing
+## Intro
+Heute gibt es keine relevanten neuen Meldungen zu KI-Geschäftsmodellen. \
+Wir melden uns morgen wieder mit frischen Nachrichten.
+"""
+
+def load():
     if not Path("articles.json").is_file():
-        sys.exit("articles.json fehlt – erst crawl.py ausführen")
-    data = json.loads(Path("articles.json").read_text())
-    if not data:
-        sys.exit("Keine Artikel gefunden.")
-    return data
+        return []
+    return json.loads(Path("articles.json").read_text())
 
-def build_prompt(arts: list[dict]) -> str:
-    bullets = "\n".join(
-        f"- {a['title']} ({a['url']})" for a in arts[:12]
-    )
-    return SYSTEM_PROMPT + "\n\nRELEVANTE QUELLEN HEUTE:\n" + bullets
+def main():
+    arts = load()
+    if not arts:
+        Path("script.txt").write_text(FALLBACK_TEXT)
+        print("ℹ️  Keine Artikel – Fallback-Text geschrieben.")
+        return
 
-def main() -> None:
-    arts = load_articles()
-    openai.api_key = os.getenv("OPENAI_API_KEY")
-    if not openai.api_key:
-        sys.exit("OPENAI_API_KEY fehlt.")
+    bullets = "\n".join(f"- {a['title']} ({a['url']})" for a in arts[:12])
+    prompt = TEMPLATE + "\nQUELLEN:\n" + bullets
 
-    prompt = build_prompt(arts)
-    print("⏳  GPT-Zusammenfassung …")
+    openai.api_key = os.getenv("OPENAI_API_KEY") or sys.exit("OPENAI_API_KEY fehlt")
     resp = openai.chat.completions.create(
         model=MODEL,
-        messages=[
-            {"role": "system", "content": prompt},
-        ],
+        messages=[{"role": "system", "content": prompt}],
         max_tokens=TOKENS,
-        temperature=TEMPERATURE,
+        temperature=TEMP,
     )
-    text = resp.choices[0].message.content.strip()
-    Path("script.txt").write_text(text)
-    print(f"✅  script.txt geschrieben ({len(text.split())} Wörter)")
+    txt = resp.choices[0].message.content.strip()
+    Path("script.txt").write_text(txt)
+    print(f"✅  script.txt geschrieben ({len(txt.split())} Wörter)")
 
 if __name__ == "__main__":
     main()
