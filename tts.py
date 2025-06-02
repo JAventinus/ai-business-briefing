@@ -1,5 +1,6 @@
 """
 tts.py – erzeugt YYYY-MM-DD_briefing.mp3 via Gemini 2.5 Flash TTS
+Kompatibel mit google-generativeai ≥ 0.6.1
 """
 
 import os, sys, base64, pathlib
@@ -7,14 +8,14 @@ from datetime import date
 import google.generativeai as genai
 
 # ────────── Einstellungen ───────────────────────────────────────────
-MODEL_NAME = "gemini-2.5-flash-preview-tts"
-VOICE_NAME = "puck"          # dt. Stimme
+MODEL_NAME = "gemini-2.5-flash-preview-tts"       # oder …pro-preview-tts
+VOICE_NAME = "puck"                               # dt. Stimme
 SPEAK_RATE = 0.95
 PITCH      = "+2st"
 
 SCRIPT_FILE = "script.txt"
-OUT_DIR  = pathlib.Path("output")
-OUT_FILE = OUT_DIR / f"{date.today():%Y-%m-%d}_briefing.mp3"
+OUT_DIR     = pathlib.Path("output")
+OUT_FILE    = OUT_DIR / f"{date.today():%Y-%m-%d}_briefing.mp3"
 # ────────────────────────────────────────────────────────────────────
 
 def fail(msg: str):
@@ -34,20 +35,18 @@ def main():
     try:
         resp = model.generate_content(
             text,
-            generation_config={
-                "response_mime_type": "audio/mp3",
-                "audio_config": {
-                    "voice_name":    VOICE_NAME,
-                    "speaking_rate": SPEAK_RATE,
-                    "pitch":         PITCH,
-                },
+            response_mime_type="audio/mp3",
+            audio_config={
+                "voice_name":    VOICE_NAME,
+                "speaking_rate": SPEAK_RATE,
+                "pitch":         PITCH,
             },
         )
     except Exception as err:
         fail(f"Gemini-API-Fehler: {err}")
 
     try:
-        b64_audio = resp.candidates[0].content.parts[0].inline_data.data  # type: ignore
+        b64_audio = resp.candidates[0].content.parts[0].inline_data.data  # type: ignore[attr-defined]
     except (AttributeError, IndexError):
         fail("Antwortformat unerwartet – prüfe Modellnamen & Key")
 
