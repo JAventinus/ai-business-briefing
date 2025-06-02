@@ -2,7 +2,7 @@ name: Daily AI Business Briefing
 
 on:
   schedule:
-    - cron:  '30 3 * * *'          # 05:30 CEST
+    - cron:  '30 3 * * *'          # 05 : 30 CEST
   workflow_dispatch:
 
 jobs:
@@ -11,42 +11,59 @@ jobs:
 
     env:
       OPENAI_API_KEY:       ${{ secrets.OPENAI_API_KEY }}
-      GOOGLE_DRIVE_FOLDER:  ${{ secrets.GOOGLE_DRIVE_FOLDER }}
+      GOOGLE_DRIVE_FOLDER:  ${{ secrets.GOOGLE_DRIVE_FOLDER }}   # Ziel-Ordner-ID
 
     steps:
-    # 1  Code holen
+    # 1 ─ Code auschecken
     - uses: actions/checkout@v4
 
-    # 2  Python 3.11
+    # 2 ─ Python 3.11
     - uses: actions/setup-python@v5
       with: { python-version: '3.11' }
 
-    # 3  Abhängigkeiten
-    - name: Install deps
+    # 3 ─ Python-Pakete
+    - name: Install Python deps
       run: |
         pip install --upgrade pip
         pip install google-cloud-texttospeech>=2.16.1
         pip install -r requirements.txt
 
-    # 4  Service-Account-Key schreiben (Base-64-Secret!)
-    - name: Prepare ADC
+    # 4 ─ Service-Account-JSON schreiben (Base-64-Secret!)
+    - name: Write SA key & set ADC
       run: |
         echo '${{ secrets.GDRIVE_CREDENTIALS_B64 }}' | base64 -d > /tmp/sa.json
         echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa.json" >> $GITHUB_ENV
 
-    # 5  News → Script → MP3
-    - run: python crawl.py            # News
+    # 5 ─ Inhalte sammeln ► Script ► MP3
+    - run: python crawl.py
       name: Crawl & score news
-    - run: python summarize.py        # script.txt
-      name: Build podcast script
-    - run: python tts.py              # output/YYYY-MM-DD_briefing.mp3
-      name: Generate MP3 with Google Cloud TTS
 
-    # 6  Upload nach Google Drive (neue Action)
+    - run: python summarize.py
+      name: Build podcast script
+
+    - run: python tts.py
+      name: Generate MP3 (Google TTS)          # output/YYYY-MM-DD_briefing.mp3
+
+    # 6 ─ erzeugtes MP3 in Root kopieren (fester Name)
+    - name: Rename MP3
+      run: |
+        cp output/*.mp3 briefing.mp3
+        ls -l briefing.mp3
+
+    # 7 ─ rclone installieren
+    - name: Install rclone
+      run: |
+        curl -fsSL https://rclone.org/install.sh | sudo bash
+
+    # 8 ─ Upload via rclone (Service-Account)
     - name: Upload MP3 to Google Drive
-      uses: EndBug/google-drive-upload-action@v1
-      with:
-        credentials:      ${{ secrets.GDRIVE_CREDENTIALS_B64 }}
-        folder_id:        ${{ env.GOOGLE_DRIVE_FOLDER }}
-        file_path:        output/*.mp3        # Wildcard wird hier unterstützt
-        overwrite:        true
+      run: |
+        cat > /tmp/rclone.conf <<EOF
+        [drive]
+        type = drive
+        scope = drive
+        service_account_file = /tmp/sa.json
+        root_folder_id = ${GOOGLE_DRIVE_FOLDER}
+        EOF
+
+        rclone --config /tmp/rclone.conf copy briefing.mp3 drive:
