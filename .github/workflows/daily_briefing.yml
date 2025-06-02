@@ -1,68 +1,52 @@
 name: Daily AI Business Briefing
 
 on:
-  # Ausführung täglich um 05 : 30 CEST  (03 : 30 UTC)
   schedule:
-    - cron: '30 3 * * *'
+    - cron:  '30 3 * * *'          # 05:30 CEST
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
-    # ▸ nur noch die benötigten ENV-Variablen
     env:
       OPENAI_API_KEY:       ${{ secrets.OPENAI_API_KEY }}
       GOOGLE_DRIVE_FOLDER:  ${{ secrets.GOOGLE_DRIVE_FOLDER }}
 
     steps:
-      # ───────────────────────────────────────── 1 ‖ Code holen
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    # 1  Code holen
+    - uses: actions/checkout@v4
 
-      # ───────────────────────────────────────── 2 ‖ Python 3.11
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+    # 2  Python 3.11
+    - uses: actions/setup-python@v5
+      with: { python-version: '3.11' }
 
-      # ───────────────────────────────────────── 3 ‖ Abhängigkeiten
-      - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install google-cloud-texttospeech>=2.16.1
-          pip install -r requirements.txt         # feedparser, requests, openai …
+    # 3  Abhängigkeiten
+    - name: Install deps
+      run: |
+        pip install --upgrade pip
+        pip install google-cloud-texttospeech>=2.16.1
+        pip install -r requirements.txt
 
-      # ───────────────────────────────────────── 4 ‖ ADC-Credentials vorbereiten
-      - name: Write SA key & set ADC
-        run: |
-          echo '${{ secrets.GDRIVE_CREDENTIALS_B64 }}' | base64 -d > /tmp/sa.json
-          echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa.json" >> $GITHUB_ENV
+    # 4  Service-Account-Key schreiben (Base-64-Secret!)
+    - name: Prepare ADC
+      run: |
+        echo '${{ secrets.GDRIVE_CREDENTIALS_B64 }}' | base64 -d > /tmp/sa.json
+        echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa.json" >> $GITHUB_ENV
 
-      # ───────────────────────────────────────── 5 ‖ Inhalte sammeln & Script bauen
-      - name: Crawl & score news
-        run: python crawl.py
+    # 5  News → Script → MP3
+    - run: python crawl.py            # News
+      name: Crawl & score news
+    - run: python summarize.py        # script.txt
+      name: Build podcast script
+    - run: python tts.py              # output/YYYY-MM-DD_briefing.mp3
+      name: Generate MP3 with Google Cloud TTS
 
-      - name: Build podcast script
-        run: python summarize.py
-
-      # ───────────────────────────────────────── 6 ‖ MP3 erzeugen
-      - name: Generate MP3 with Google Cloud TTS
-        run: python tts.py                         # legt output/YYYY-MM-DD_briefing.mp3 an
-
-      # ───────────────────────────────────────── 7 ‖ MP3 eindeutig benennen
-      - name: Statically name MP3
-        id: mp3
-        run: |
-          FILE=$(ls output/*.mp3)
-          cp "$FILE" briefing.mp3                  # fester Name im Repo-Root
-          echo "FULL=$(pwd)/briefing.mp3" >> "$GITHUB_OUTPUT"
-          ls -l briefing.mp3
-
-      # ───────────────────────────────────────── 8 ‖ Upload nach Google Drive
-      - name: Upload MP3 to Google Drive
-        uses: willo32/google-drive-upload-action@v1
-        with:
-          target:           ${{ steps.mp3.outputs.FULL }}
-          credentials:      ${{ secrets.GDRIVE_CREDENTIALS_B64 }}
-          parent_folder_id: ${{ env.GOOGLE_DRIVE_FOLDER }}
+    # 6  Upload nach Google Drive (neue Action)
+    - name: Upload MP3 to Google Drive
+      uses: EndBug/google-drive-upload-action@v1
+      with:
+        credentials:      ${{ secrets.GDRIVE_CREDENTIALS_B64 }}
+        folder_id:        ${{ env.GOOGLE_DRIVE_FOLDER }}
+        file_path:        output/*.mp3        # Wildcard wird hier unterstützt
+        overwrite:        true
