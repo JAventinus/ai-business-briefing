@@ -1,54 +1,72 @@
 """
-tts.py – erzeugt YYYY-MM-DD_briefing.mp3 mit Google Cloud TTS
-Stimme: de-DE-Neural2-D (m) oder de-DE-Neural2-B (w)
+tts.py  –  wandelt script.txt in briefing.mp3
+• zerlegt Text in max 4 500-Byte-Chunks (TTS-Limit 5 000)
+• ruft Google Cloud TTS pro Chunk auf
+• führt alle Audios zusammen
 """
 
-import os, pathlib, sys
+import os, sys, base64, pathlib, re, math
 from datetime import date
 from google.cloud import texttospeech
 
-# ---------- Konfiguration ----------------------------------------------------
-VOICE      = "de-DE-Neural2-D"   # z. B. Neural2-B, Neural2-C …
-SPEAK_RATE = 0.95
-PITCH      = 2.0                 # Halbtonschritte
+VOICE      = "de-DE-Neural2-D"
+RATE       = 0.95
+PITCH      = 2.0
+MAX_BYTES  = 4500          # konservativ unter 5 000
+
 SCRIPT     = "script.txt"
 OUT_DIR    = pathlib.Path("output")
 OUT_FILE   = OUT_DIR / f"{date.today():%Y-%m-%d}_briefing.mp3"
-# -----------------------------------------------------------------------------
 
-def fail(msg: str):
-    sys.stderr.write(f"❌  {msg}\n")
-    sys.exit(1)
+def fail(msg):
+    sys.stderr.write(f"❌  {msg}\n"); sys.exit(1)
+
+def chunks_by_bytes(text, lim):
+    words, chunk, size = text.split(), [], 0
+    for w in words:
+        b = len((w + " ").encode("utf-8"))
+        if size + b > lim:
+            yield " ".join(chunk)
+            chunk, size = [], 0
+        chunk.append(w); size += b
+    if chunk:
+        yield " ".join(chunk)
+
+def synthesize(client, txt):
+    req = dict(
+        input=texttospeech.SynthesisInput(text=txt),
+        voice=texttospeech.VoiceSelectionParams(
+            language_code="de-DE", name=VOICE),
+        audio_config=texttospeech.AudioConfig(
+            audio_encoding=texttospeech.AudioEncoding.MP3,
+            speaking_rate=RATE, pitch=PITCH)
+    )
+    return client.synthesize_speech(**req).audio_content
 
 def main():
     if not pathlib.Path(SCRIPT).is_file():
-        fail("script.txt fehlt – erst summarize.py ausführen.")
+        fail("script.txt fehlt – erst summarize.py ausführen")
 
-    # Client authentifiziert sich automatisch über GDRIVE_CREDENTIALS-JSON
+    full = pathlib.Path(SCRIPT).read_text(encoding="utf-8").strip()
+    if len(full.encode()) <= 500: fail("script.txt extrem kurz – abgebrochen")
+
     client = texttospeech.TextToSpeechClient()
 
-    text = pathlib.Path(SCRIPT).read_text(encoding="utf-8")
-    input_cfg  = texttospeech.SynthesisInput(text=text)
-    voice_cfg  = texttospeech.VoiceSelectionParams(
-        language_code="de-DE",
-        name=VOICE
-    )
-    audio_cfg  = texttospeech.AudioConfig(
-        audio_encoding=texttospeech.AudioEncoding.MP3,
-        speaking_rate=SPEAK_RATE,
-        pitch=PITCH
-    )
-
-    resp = client.synthesize_speech(
-        input=input_cfg,
-        voice=voice_cfg,
-        audio_config=audio_cfg
-    )
-
     OUT_DIR.mkdir(exist_ok=True)
-    OUT_FILE.write_bytes(resp.audio_content)
-    kb = OUT_FILE.stat().st_size // 1024
-    print(f"✅  {OUT_FILE.name} gespeichert ({kb} KB)")
+    tmp_files = []
+
+    for i, chunk in enumerate(chunks_by_bytes(full, MAX_BYTES), 1):
+        audio = synthesize(client, chunk)
+        part = OUT_DIR / f"part_{i:02d}.mp3"
+        part.write_bytes(audio)
+        tmp_files.append(part)
+        print(f"🔹  Chunk {i} → {part.name} ({len(audio)//1024} KB)")
+
+    # concat via simple binary append (MP3 frames, gleiche Params)
+    with open(OUT_FILE, "wb") as out:
+        for p in tmp_files:
+            out.write(p.read_bytes())
+    print(f"✅  {OUT_FILE.name} fertig ({OUT_FILE.stat().st_size//1024} KB)")
 
 if __name__ == "__main__":
     main()
