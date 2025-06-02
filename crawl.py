@@ -1,82 +1,86 @@
 """
-crawl.py – sammelt aktuelle KI-Business-Artikel
+crawl.py  –  sammelt tagesaktuelle KI-Business-Meldungen
 Speichert Ergebnis als articles.json
 """
 
-import feedparser
-import requests, json, re, hashlib
+import feedparser, json, re, hashlib, requests
 from datetime import datetime, timedelta, timezone
-from dateutil import parser as dtparse
+from dateutil import parser as dp
 from pathlib import Path
-from tqdm import tqdm
 
-# -------- Quellen (RSS + JSON API) ------------------------------------------
-RSS_FEEDS = [
-    # Venture / Tech-Business
+RSS = [
+    # International
     "https://techcrunch.com/tag/artificial-intelligence/feed/",
+    "https://venturebeat.com/category/ai/feed",
     "https://www.ben-evans.com/benedictevans?format=rss",
-    # KI-Start-ups, Funding, M&A
-    "https://www.ai-startups.org/feed",
-    # deutschsprachige
+    "https://aiinvestor.substack.com/feed",
+    # Funding & Deals
+    "https://ai-startups.org/feed",
+    "https://feeds.feedburner.com/crunchbase-news",
+    # DACH
     "https://www.handelsblatt.com/contentexport/feeds/TechAI",
+    "https://t3n.de/rss.xml",
+    # Heise AI-Ticker JSON
+    "https://www.heise.de/hct/fakten/471/api/news/ai",
 ]
 
-NEWSAPI_KEY = ""   # optional – wenn du einen NewsAPI-Key hast
-
-# Schlüsselbegriffe, die „geschäftsrelevante“ Meldungen markieren
 KEYWORDS = [
     "business model", "commercial", "revenue", "subscription",
-    "startup", "funding", "investment", "series", "seed",
+    "startup", "funding", "series", "seed", "investment",
     "licensing", "partnership", "enterprise",
     "Geschäftsmodell", "Finanzierungsrunde", "Umsatz",
 ]
 
-MAX_AGE_H = 24       # nur Artikel der letzten 24 h
-MAX_ARTICLES = 30    # hartes Limit pro Tag
+MAX_H = 36     # bis zu 36 Stunden zurück
+MAX_N = 40     # Obergrenze Artikel
 
-# ---------------------------------------------------------------------------
-def kw_score(txt: str) -> int:
-    txt_l = txt.lower()
-    return sum(1 for k in KEYWORDS if k in txt_l)
+def kscore(txt: str) -> int:
+    t = txt.lower()
+    return sum(k in t for k in KEYWORDS)
 
-def normalize_url(url: str) -> str:
-    return url.split("?")[0].strip("/")
+def add_article(store, title, url, summary, pub, src):
+    if kscore(title + summary) == 0:
+        return
+    store.append(
+        dict(
+            id=hashlib.md5(url.encode()).hexdigest()[:10],
+            title=title.strip(),
+            summary=re.sub("<[^>]+>", "", summary)[:400],
+            url=url,
+            published=pub.isoformat(),
+            source=src,
+        )
+    )
 
-def fetch_rss() -> list[dict]:
-    articles = []
-    now = datetime.now(timezone.utc) - timedelta(hours=MAX_AGE_H)
-    for url in RSS_FEEDS:
-        feed = feedparser.parse(url)
-        for entry in feed.entries:
-            if not getattr(entry, "link", None):
+def fetch_rss():
+    arts, now = [], datetime.now(timezone.utc) - timedelta(hours=MAX_H)
+    for src in RSS[:-1]:  # alle außer Heise-API
+        feed = feedparser.parse(src)
+        for e in feed.entries:
+            if not getattr(e, "link", None):
                 continue
-            pub = dtparse.parse(getattr(entry, "published", datetime.utcnow().isoformat()))
+            pub = dp.parse(getattr(e, "published", datetime.utcnow().isoformat()))
             if pub < now:
                 continue
-            title = entry.title
-            desc  = getattr(entry, "summary", "")
-            score = kw_score(title + " " + desc)
-            if score == 0:
-                continue
-            articles.append(
-                dict(
-                    id=hashlib.sha1(entry.link.encode()).hexdigest()[:10],
-                    title=title,
-                    summary=re.sub("<[^>]+>", "", desc)[:400],
-                    url=normalize_url(entry.link),
-                    published=pub.isoformat(),
-                    score=score,
-                    source=url,
-                )
-            )
-    # sortiert nach Keyword-Score und Aktualität
-    articles.sort(key=lambda a: (-a["score"], a["published"]), reverse=False)
-    return articles[:MAX_ARTICLES]
+            add_article(arts, e.title, e.link, getattr(e, "summary", ""), pub, src)
+    return arts
 
-def main() -> None:
-    arts = fetch_rss()
-    Path("articles.json").write_text(json.dumps(arts, indent=2, ensure_ascii=False))
-    print(f"✅  {len(arts)} Artikel gespeichert → articles.json")
+def fetch_heise(store):
+    try:
+        data = requests.get(RSS[-1], timeout=10).json()
+        for n in data["data"][:10]:
+            pub = dp.parse(n["date"])
+            add_article(store, n["title"], n["url"], n["teaser"], pub, "heise.ai")
+    except Exception:
+        pass
+
+def main():
+    articles = fetch_rss()
+    fetch_heise(articles)
+    # Score & Limit
+    articles.sort(key=lambda a: (-kscore(a["title"]), a["published"]))
+    Path("articles.json").write_text(json.dumps(articles[:MAX_N], ensure_ascii=False, indent=2))
+    print(f"✅  {len(articles[:MAX_N])} Artikel gespeichert → articles.json")
 
 if __name__ == "__main__":
     main()
