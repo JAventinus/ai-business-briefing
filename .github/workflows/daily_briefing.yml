@@ -9,42 +9,48 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    env:
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    env:                          # nur noch benötigte Secrets
+      OPENAI_API_KEY:           ${{ secrets.OPENAI_API_KEY }}
+      GOOGLE_DRIVE_FOLDER:      ${{ secrets.GOOGLE_DRIVE_FOLDER }}
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    # ───────────────────────── Code holen
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+    # ───────────────────────── Python 3.11
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
 
-      - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install google-cloud-texttospeech>=2.16.1
-          pip install -r requirements.txt
+    # ───────────────────────── Pakete
+    - name: Install dependencies
+      run: |
+        pip install --upgrade pip
+        pip install google-cloud-texttospeech>=2.16.1
+        pip install -r requirements.txt      # feedparser, requests, openai …
 
-      - name: Write SA key & set ADC
-        run: |
-          echo '${{ secrets.GDRIVE_CREDENTIALS }}' > /tmp/sa.json
-          echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa.json" >> $GITHUB_ENV
+    # ───────────────────────── SA-Key anlegen & ADC setzen
+    - name: Write SA key & set ADC
+      run: |
+        echo '${{ secrets.GDRIVE_CREDENTIALS_B64 }}' | base64 -d > /tmp/sa.json
+        echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa.json" >> $GITHUB_ENV
 
-      # ---------- eigentliche Verarbeitung -------------------------
-      - name: Crawl & score news
-        run: python crawl.py
+    # ───────────────────────── Workflow-Logik
+    - name: Crawl & score news
+      run: python crawl.py
 
-      - name: Build podcast script
-        run: python summarize.py
+    - name: Build podcast script
+      run: python summarize.py
 
-      - name: Generate MP3 with Google Cloud TTS
-        run: python tts.py
+    - name: Generate MP3 with Google Cloud TTS
+      run: python tts.py                     # erzeugt output/YYYY-MM-DD_briefing.mp3
 
-      - name: Upload MP3 to Google Drive
-        uses: willo32/google-drive-upload-action@v1
-        with:
-          target:           output/*.mp3
-          credentials:      ${{ secrets.GDRIVE_CREDENTIALS }}
-          parent_folder_id: ${{ secrets.GOOGLE_DRIVE_FOLDER }}
+    # ───────────────────────── Datei hochladen
+    - name: Upload MP3 to Google Drive
+      uses: willo32/google-drive-upload-action@v1
+      with:
+        target:           output/*.mp3
+        credentials:      ${{ secrets.GDRIVE_CREDENTIALS_B64 }}
+        parent_folder_id: ${{ env.GOOGLE_DRIVE_FOLDER }}
