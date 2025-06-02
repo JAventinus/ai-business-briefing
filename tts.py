@@ -4,7 +4,7 @@ tts.py  –  erzeugt YYYY-MM-DD_briefing.mp3 via Gemini 2.5 Flash TTS
 
 import os, base64, pathlib, sys
 from datetime import date
-from google import genai
+import google.generativeai as genai
 
 # ---------- Konfiguration ---------------------------------------------------
 MODEL_NAME    = "gemini-2.5-flash-preview-tts"
