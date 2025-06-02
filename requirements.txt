@@ -1,4 +1,6 @@
 feedparser
 requests
-openai>=1.14
+openai>=1.14        # GPT-4o für Zusammenfassungen
+python-dateutil
+tqdm
 google-cloud-texttospeech>=2.16.1
